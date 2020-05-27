@@ -1,40 +1,38 @@
 #!/bin/sh
 
-set -ex
+set -e
 
-cleanup() {
-  echo "Cancelled. Removing leftover files."
-  rm  "$1"
+failed() {
+	if [ $? -ne 0 ]; then
+		echo "Cancelled. Removing leftover files."
+		rm  "$1"
+	fi
 }
-
-trap cleanup EXIT
-
 
 bring_image(){
-	trap 'cleanup nhos.img*' EXIT
+	trap 'failed nhos.img*' SIGINT
 	wget "https://files.nicehash.com/nhminer/nhos/nhos-$NHOS_VERSION/image/nhos-$NHOS_VERSION.img.gz" -O "nhos.img.gz"
 	gunzip "nhos.img.gz"
-}
-
-convert_image(){
-	trap 'cleanup nhos.vhd' EXIT
-	truncate nhos.img -s "$1"
-	sgdisk -e nhos.img
-	qemu-img convert nhos.img -O vpc -o subformat=fixed,force_size nhos.vhd
-}
-
-mount_image(){
-	if mknod /dev/loop128 b 7 128; then
-		partprobe /dev/loop128
-		mount /dev/loop128p2 /mnt
-	else
-		return 1
-	fi
 	return 0
 }
 
+shrink_image() {
+	if [ "$(stat -c "%s" nhos.img)" -gt "$1" ]; then
+		truncate nhos.img -s "$1"
+		sgdisk -e nhos.img
+	fi
+}
+
+convert_image(){
+	trap 'failed nhos.vhd' SIGINT
+	qemu-img convert nhos.img -O vpc -o subformat=fixed,force_size nhos.vhd
+}
+
 update_config(){
-	cat << EOF > /mnt/configuration.txt
+
+	if mount_image; then
+		echo "Installing configuration..."
+		cat << EOF > /mnt/configuration.txt
 {
 	"rig": {
 		"btc": "$1",
@@ -48,7 +46,26 @@ update_config(){
 	},
 }
 EOF
+		umount /mnt
+	else
+		echo "Unable to mount. You need to mount the volume and edit the configuration manually."
+	fi
 }
+
+mount_image(){
+	if mknod /dev/loop128 b 7 128; then
+		if partprobe /dev/loop128; then
+			mount /dev/loop128p2 /mnt
+		fi
+	fi
+}
+
+if xxhsum --status -c nhos.vhd.sum ; then
+	echo "VHD image exists already. I you want to recreate, delete the leftover images manually."
+	exit 0
+fi
+
+sleep 10
 
 if [ -n "$1" ]; then 
 	BTC="$1"
@@ -66,7 +83,8 @@ fi
 if [ -f nhos.img ]; then
 	if [ ! -f nhos.vhd ]; then
 	echo "Converting the RAW image to VHD..."
-		convert_image 702545408
+		shrink_image 702545408
+		convert_image
 	fi
 else
 	if [ ! -f nhos.img.gz ]; then
@@ -74,15 +92,13 @@ else
 		bring_image
 	fi
 	echo "Converting the RAW image to VHD..."
-	convert_image 702545408
+	shrink_image 702545408
+	convert_image
 fi
 
-if mount_image; then
-	echo "Installing configuration..."
-	update_config "$BTC" "$SSH_KEY"
-	umount /mnt
-else
-	echo "Unable to mount. You need to mount the volume and edit the configuration manually."
-fi
+update_config "$BTC" "$SSH_KEY"
+
+echo "Checksumming image..."
+xxh128sum nhos.vhd > nhos.vhd.sum
 
 echo "All done!"
