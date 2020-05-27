@@ -1,9 +1,9 @@
 # NiceHash OS image downloader
 
-This tool is intended to download and prepare a [NiceHash OS](https://www.nicehash.com/blog/post/nicehash-os-flash-tool-user-guide) to be used in the cloud, in a convenient way, usnig Alpine-based Docker container.
+This tool is intended to download and prepare a [NiceHash OS](https://www.nicehash.com/blog/post/nicehash-os-flash-tool-user-guide) to be used in the cloud (specially Azure), in a convenient way, usnig Alpine-based Docker container.
 
 ## What does this tool do?
-* Downloads the latest NiceHash OS (RAW) disk image
+* Downloads the latest NiceHash OS (RAW) disk image availabla
 * Shrinks the image to 702545408 bytes (670 MB minus 512 bytes, see below why)
 * Fixes the GPT structure (using [sgdisk](https://linux.die.net/man/8/sgdisk))
 * Converts the image to VHD (using [qemu-img](https://linux.die.net/man/1/qemu-img))
