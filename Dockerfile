@@ -1,5 +1,5 @@
 FROM alpine:edge
-RUN apk add --no-cache qemu-img sgdisk parted
+RUN apk add --no-cache qemu-img sgdisk parted xxhash
 COPY entrypoint /entrypoint
 VOLUME /root
 WORKDIR /root
