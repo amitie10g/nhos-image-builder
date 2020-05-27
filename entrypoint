@@ -1,0 +1,88 @@
+#!/bin/sh
+
+set -ex
+
+cleanup() {
+  echo "Cancelled. Removing leftover files."
+  rm  "$1"
+}
+
+trap cleanup EXIT
+
+
+bring_image(){
+	trap 'cleanup nhos.img*' EXIT
+	wget "https://files.nicehash.com/nhminer/nhos/nhos-$NHOS_VERSION/image/nhos-$NHOS_VERSION.img.gz" -O "nhos.img.gz"
+	gunzip "nhos.img.gz"
+}
+
+convert_image(){
+	trap 'cleanup nhos.vhd' EXIT
+	truncate nhos.img -s "$1"
+	sgdisk -e nhos.img
+	qemu-img convert nhos.img -O vpc -o subformat=fixed,force_size nhos.vhd
+}
+
+mount_image(){
+	if mknod /dev/loop128 b 7 128; then
+		partprobe /dev/loop128
+		mount /dev/loop128p2 /mnt
+	else
+		return 1
+	fi
+	return 0
+}
+
+update_config(){
+	cat << EOF > /mnt/configuration.txt
+{
+	"rig": {
+		"btc": "$1",
+		"worker": "",
+		"group": ""
+	},
+	"access": {
+		"ssh": {
+			"key": "$2"
+		}
+	},
+}
+EOF
+}
+
+if [ -n "$1" ]; then 
+	BTC="$1"
+fi
+
+if [ -n "$2" ]; then
+	SSH_KEY="$2"
+fi
+
+if [ -z "$BTC" ] || [ -z "$SSH_KEY" ]; then
+	echo "You must provide your BTC address (NiceHash username) and an public SSH key."
+	exit 1
+fi
+
+if [ -f nhos.img ]; then
+	if [ ! -f nhos.vhd ]; then
+	echo "Converting the RAW image to VHD..."
+		convert_image 702545408
+	fi
+else
+	if [ ! -f nhos.img.gz ]; then
+		echo "Downloading new image..."
+		bring_image
+	fi
+	echo "Converting the RAW image to VHD..."
+	convert_image 702545408
+fi
+
+if mount_image; then
+	echo "Installing configuration..."
+	update_config "$BTC" "$SSH_KEY"
+	umount /mnt
+else
+	echo "Unable to mount. You need to mount the volume and edit the configuration manually."
+fi
+
+echo "All done!"
